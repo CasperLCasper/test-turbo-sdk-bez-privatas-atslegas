@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ardrive/turbo-sdk": "1.42.0",
+    "@dha-team/arbundles": "latest",
     "ethers": "^6.13.4",
     "express": "^4.18.2",
     "react": "^18.3.1",
