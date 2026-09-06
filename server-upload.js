@@ -1,51 +1,64 @@
-import express from 'express';
-import { TurboFactory } from '@ardrive/turbo-sdk';
-import { Readable } from 'stream';
+import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
 const PORT = process.env.PORT || 3001;
 
-const TURBO_TOKEN = process.env.TURBO_TOKEN || 'base-eth';
-const TURBO_UPLOAD_URL = process.env.TURBO_UPLOAD_URL || 'https://upload.services.ar-io.dev';
-const TURBO_PAYMENT_URL = process.env.TURBO_PAYMENT_URL || 'https://payment.services.ar-io.dev';
-const GATEWAY_URL = process.env.GATEWAY_URL || 'https://sepolia.base.org';
-
-app.use(express.json({ limit: '100mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Jauns endpoints: serveris saņem lietotāja parakstīto transakciju
-app.post('/api/upload-signed', async (req, res) => {
-    try {
-        const { signedDataItem } = req.body;
-        
-        if (!signedDataItem) {
-            return res.status(400).json({ success: false, error: 'Nav parakstīta data item' });
+const server = http.createServer((req, res) => {
+    // Noņem query parametrus
+    const url = req.url.split('?')[0];
+    
+    // Nosaka faila ceļu
+    let filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
+    
+    // Novērš path traversal uzbrukumus
+    if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+    }
+    
+    // Pārbauda, vai fails eksistē
+    fs.readFile(filePath, (err, data) => {
+        if (err) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not found');
+            return;
         }
         
-        // Serveris izmanto UNAUTHENTICATED Turbo klientu
-        const turbo = TurboFactory.unauthenticated({
-            token: TURBO_TOKEN,
-            uploadServiceConfig: { url: TURBO_UPLOAD_URL },
-            paymentServiceConfig: { url: TURBO_PAYMENT_URL }
-        });
+        // Nosaka Content-Type pēc faila paplašinājuma
+        const ext = path.extname(filePath).toLowerCase();
+        const contentTypes = {
+            '.html': 'text/html; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.svg': 'image/svg+xml',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.ico': 'image/x-icon'
+        };
         
-        // Augšupielādē jau parakstīto data item
-        const result = await turbo.uploadSignedDataItem({
-            dataItemStreamFactory: () => Readable.from(Buffer.from(signedDataItem, 'base64')),
-            dataItemSizeFactory: () => Buffer.from(signedDataItem, 'base64').length,
+        res.writeHead(200, { 
+            'Content-Type': contentTypes[ext] || 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-cache'
         });
-        
-        res.json({ success: true, txId: result.id });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message || String(error) });
-    }
+        res.end(data);
+    });
 });
 
-app.listen(PORT, () => {
-    console.log(`Upload serveris uz porta ${PORT} (bez privātās atslēgas!)`);
+server.listen(PORT, () => {
+    console.log('='.repeat(60));
+    console.log('🚀 STATISKO FAILU SERVERIS');
+    console.log('='.repeat(60));
+    console.log(`   Ports: ${PORT}`);
+    console.log(`   URL: http://localhost:${PORT}`);
+    console.log(`   Mape: ${path.join(__dirname, 'public')}`);
+    console.log('='.repeat(60) + '\n');
 });
