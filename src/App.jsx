@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { TurboFactory, InjectedEthereumSigner } from '@ardrive/turbo-sdk';
+import { TurboFactory } from '@ardrive/turbo-sdk/web';
+import { InjectedEthereumSigner } from '@dha-team/arbundles';
 
 function App() {
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -46,7 +47,7 @@ function App() {
         }
       }
 
-      // Izveido Turbo klientu
+      // Izveido Turbo klientu ar PAREIZO import
       const client = TurboFactory.authenticated({
         signer: new InjectedEthereumSigner({ getSigner: () => signer }),
         token: 'base-eth',
