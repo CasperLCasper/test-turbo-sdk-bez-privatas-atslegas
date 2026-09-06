@@ -126,6 +126,7 @@
         let selectedFiles = [];
         let userSigner = null;
         let userAddress = null;
+        let turboClient = null;
         
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
@@ -147,13 +148,16 @@
                 const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                 userAddress = accounts[0];
                 
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                userSigner = await provider.getSigner();
+                
                 walletStatus.textContent = '✅ Maks savienots: ' + userAddress;
                 walletStatus.className = 'wallet-status connected';
                 
                 connectWalletBtn.textContent = '✅ Maks savienots';
                 connectWalletBtn.disabled = true;
                 
-                // Pārbauda, vai ir Base Sepolia tīklā
+                // Pārslēdzas uz Base Sepolia
                 try {
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
@@ -172,6 +176,24 @@
                             }]
                         });
                     }
+                }
+                
+                // Izveido Turbo klientu
+                try {
+                    const { TurboFactory, InjectedEthereumSigner } = await import('https://cdn.jsdelivr.net/npm/@ardrive/turbo-sdk@latest/dist/browser.js');
+                    
+                    turboClient = TurboFactory.authenticated({
+                        signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
+                        token: 'base-eth',
+                        gatewayUrl: 'https://sepolia.base.org',
+                        uploadServiceConfig: { url: 'https://upload.services.ar-io.dev' },
+                        paymentServiceConfig: { url: 'https://payment.services.ar-io.dev' }
+                    });
+                    
+                    walletStatus.textContent = '✅ Maks savienots: ' + userAddress + ' (Turbo gatavs!)';
+                } catch (turboError) {
+                    console.error('Turbo SDK kļūda:', turboError);
+                    walletStatus.textContent = '⚠️ Maks savienots, bet Turbo SDK neizdevās ielādēt: ' + turboError.message;
                 }
                 
             } catch (error) {
@@ -250,24 +272,112 @@
             return (bytes / 1024 / 1024).toFixed(2) + ' MB';
         }
         
-        // Augšupielāde (pagaidām tikai parāda failu sarakstu)
+        // AUGŠUPIELĀDE
         uploadBtn.addEventListener('click', async function() {
             if (selectedFiles.length === 0) {
                 alert('Vispirms izvēlies failus!');
                 return;
             }
             
-            if (!userAddress) {
-                alert('Vispirms savieno maku!');
+            if (!turboClient) {
+                alert('Vispirms savieno maku un pagaidi, kamēr Turbo ielādējas!');
                 return;
             }
             
-            statusEl.textContent = '✅ Izvēlētie faili:\n\n';
-            for (const file of selectedFiles) {
-                statusEl.textContent += '📄 ' + file.name + ' (' + formatBytes(file.size) + ')\n';
+            const button = uploadBtn;
+            
+            button.disabled = true;
+            statusEl.textContent = '⏳ Augšupielādē ' + selectedFiles.length + ' failus...';
+            statusEl.className = 'status';
+            
+            try {
+                const uploadResults = [];
+                
+                // 1. Augšupielādē visus failus
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const file = selectedFiles[i];
+                    statusEl.textContent = '⏳ Augšupielādē ' + (i + 1) + '/' + selectedFiles.length + ': ' + file.name + '...';
+                    
+                    let contentType = 'text/html';
+                    let fileType = 'restore-page';
+                    
+                    if (file.name === 'manifest.json') {
+                        contentType = 'application/x.arweave-manifest+json';
+                        fileType = 'path-manifest';
+                    } else if (file.name.endsWith('.css')) {
+                        contentType = 'text/css';
+                        fileType = 'style';
+                    } else if (file.name.endsWith('.js')) {
+                        contentType = 'application/javascript';
+                        fileType = 'script';
+                    }
+                    
+                    const result = await turboClient.uploadFile({
+                        fileStreamFactory: () => file.stream(),
+                        fileSizeFactory: () => file.size,
+                        dataItemOpts: {
+                            tags: [
+                                { name: 'App-Name', value: 'PermRepo' },
+                                { name: 'Type', value: fileType },
+                                { name: 'Content-Type', value: contentType },
+                                { name: 'Title', value: 'PermRepo Restore' }
+                            ]
+                        }
+                    });
+                    
+                    uploadResults.push({ name: file.name, txId: result.id });
+                }
+                
+                // 2. Izveido manifestu
+                statusEl.textContent = '📦 Veido manifestu...';
+                
+                const manifest = {
+                    manifest: 'arweave/paths',
+                    version: '0.1.0',
+                    index: { path: 'restore.html' },
+                    paths: {}
+                };
+                
+                for (const r of uploadResults) {
+                    manifest.paths[r.name] = { id: r.txId };
+                }
+                
+                const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/x.arweave-manifest+json' });
+                
+                const manifestResult = await turboClient.uploadFile({
+                    fileStreamFactory: () => manifestBlob.stream(),
+                    fileSizeFactory: () => manifestBlob.size,
+                    dataItemOpts: {
+                        tags: [
+                            { name: 'App-Name', value: 'PermRepo' },
+                            { name: 'Type', value: 'path-manifest' },
+                            { name: 'Content-Type', value: 'application/x.arweave-manifest+json' },
+                            { name: 'Title', value: 'PermRepo Restore' }
+                        ]
+                    }
+                });
+                
+                let resultText = '✅ Augšupielādēti faili:\n\n';
+                for (const r of uploadResults) {
+                    resultText += '📄 ' + r.name + '\n' + r.txId + '\n\n';
+                }
+                
+                resultText += '📦 MANIFEST TX ID: ' + manifestResult.id + '\n\n';
+                resultText += '🌐 URL: https://ar-io.dev/' + manifestResult.id;
+                
+                statusEl.textContent = resultText;
+                statusEl.className = 'status success';
+                
+                selectedFiles = [];
+                updateFileList();
+                
+            } catch (e) {
+                console.error('Kļūda:', e);
+                statusEl.textContent = '❌ ' + e.message;
+                statusEl.className = 'status error';
+            } finally {
+                button.disabled = false;
             }
-            statusEl.textContent += '\n✅ Maks: ' + userAddress;
-            statusEl.className = 'status success';
         });
     </script>
 </body>
