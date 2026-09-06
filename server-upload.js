@@ -12,12 +12,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
     
-    // Noklusējuma fails - index.html
     let filePath = path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url);
     
-    console.log('Pieprasīts:', url, '->', filePath);
-    
-    // Novērš path traversal
     if (!filePath.startsWith(PUBLIC_DIR)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' });
         res.end('Forbidden');
@@ -26,7 +22,6 @@ const server = http.createServer((req, res) => {
     
     fs.readFile(filePath, (err, data) => {
         if (err) {
-            console.error('Kļūda lasot failu:', filePath, '-', err.message);
             res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end('Not found: ' + url);
             return;
