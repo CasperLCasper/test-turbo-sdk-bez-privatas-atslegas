@@ -118,9 +118,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
-    <script type="module">
-        import { TurboFactory, InjectedEthereumSigner } from 'https://cdn.jsdelivr.net/npm/@ardrive/turbo-sdk@latest/dist/browser.js';
-        
+    
+    <script>
         let selectedFiles = [];
         let userSigner = null;
         let userAddress = null;
@@ -149,14 +148,6 @@
                 walletStatus.textContent = '✅ Maks savienots: ' + userAddress;
                 walletStatus.className = 'wallet-status connected';
                 
-                // Izveido Turbo klientu ar lietotāja maku
-                turboClient = TurboFactory.authenticated({
-                    signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
-                    token: 'base-eth',
-                    uploadServiceConfig: { url: 'https://upload.services.ar-io.dev' },
-                    paymentServiceConfig: { url: 'https://payment.services.ar-io.dev' }
-                });
-                
                 connectWalletBtn.textContent = '✅ Maks savienots';
                 connectWalletBtn.disabled = true;
                 
@@ -166,26 +157,35 @@
             }
         });
         
-        dropZone.addEventListener('click', () => fileInput.click());
+        // Klikšķis uz drop-zone atver failu izvēli
+        dropZone.addEventListener('click', function() {
+            fileInput.click();
+        });
         
-        dropZone.addEventListener('dragover', (e) => {
+        // Drag & Drop notikumi
+        dropZone.addEventListener('dragover', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             dropZone.classList.add('dragover');
         });
         
-        dropZone.addEventListener('dragleave', () => {
+        dropZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
             dropZone.classList.remove('dragover');
         });
         
-        dropZone.addEventListener('drop', (e) => {
+        dropZone.addEventListener('drop', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             dropZone.classList.remove('dragover');
             
             const files = Array.from(e.dataTransfer.files);
             addFiles(files);
         });
         
-        fileInput.addEventListener('change', () => {
+        // Failu izvēle caur input
+        fileInput.addEventListener('change', function() {
             const files = Array.from(fileInput.files);
             addFiles(files);
         });
@@ -206,18 +206,25 @@
             selectedFiles.forEach((file, index) => {
                 const div = document.createElement('div');
                 div.className = 'file-item';
-                div.innerHTML = '📄 ' + file.name + ' (' + formatBytes(file.size) + ') ' +
-                    '<button onclick="removeFile(' + index + ')" style="width: auto; padding: 4px 8px; margin: 0; background: #f85149; border: none; border-radius: 4px; cursor: pointer;">✕</button>';
+                
+                const span = document.createElement('span');
+                span.textContent = '📄 ' + file.name + ' (' + formatBytes(file.size) + ') ';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '✕';
+                removeBtn.style.cssText = 'width: auto; padding: 4px 8px; margin: 0 0 0 8px; background: #f85149; border: none; border-radius: 4px; cursor: pointer;';
+                removeBtn.onclick = function() {
+                    selectedFiles.splice(index, 1);
+                    updateFileList();
+                };
+                
+                div.appendChild(span);
+                div.appendChild(removeBtn);
                 fileList.appendChild(div);
             });
             
-            uploadBtn.disabled = !turboClient;
+            uploadBtn.disabled = false;
         }
-        
-        window.removeFile = function(index) {
-            selectedFiles.splice(index, 1);
-            updateFileList();
-        };
         
         function formatBytes(bytes) {
             if (bytes < 1024) return bytes + ' B';
@@ -226,7 +233,10 @@
         }
         
         uploadBtn.addEventListener('click', async function() {
-            if (selectedFiles.length === 0 || !turboClient) return;
+            if (selectedFiles.length === 0) {
+                alert('Vispirms izvēlies failus!');
+                return;
+            }
             
             const statusEl = document.getElementById('status');
             const button = uploadBtn;
@@ -236,95 +246,20 @@
             statusEl.className = 'status';
             
             try {
-                const uploadResults = [];
-                
-                // 1. Augšupielādē visus failus TIEŠI no pārlūka ar lietotāja maku
-                for (let i = 0; i < selectedFiles.length; i++) {
-                    const file = selectedFiles[i];
-                    statusEl.textContent = '⏳ Augšupielādē ' + (i + 1) + '/' + selectedFiles.length + ': ' + file.name + '...';
-                    
-                    // Nosaka Content-Type
-                    let contentType = 'text/html';
-                    let fileType = 'restore-page';
-                    
-                    if (file.name === 'manifest.json') {
-                        contentType = 'application/x.arweave-manifest+json';
-                        fileType = 'path-manifest';
-                    } else if (file.name.endsWith('.css')) {
-                        contentType = 'text/css';
-                        fileType = 'style';
-                    } else if (file.name.endsWith('.js')) {
-                        contentType = 'application/javascript';
-                        fileType = 'script';
-                    }
-                    
-                    // TIEŠA augšupielāde no pārlūka ar lietotāja maku
-                    const result = await turboClient.uploadFile({
-                        fileStreamFactory: () => file.stream(),
-                        fileSizeFactory: () => file.size,
-                        dataItemOpts: {
-                            tags: [
-                                { name: 'App-Name', value: 'PermRepo' },
-                                { name: 'Type', value: fileType },
-                                { name: 'Content-Type', value: contentType },
-                                { name: 'Title', value: 'PermRepo Restore' }
-                            ]
-                        }
-                    });
-                    
-                    uploadResults.push({ name: file.name, txId: result.id });
+                // Pagaidām tikai parāda, ka faili ir izvēlēti
+                // Šeit vēlāk pievienosim Turbo SDK augšupielādi
+                let resultText = '✅ Izvēlētie faili:\n\n';
+                for (const file of selectedFiles) {
+                    resultText += '📄 ' + file.name + ' (' + formatBytes(file.size) + ')\n';
                 }
-                
-                // 2. Izveido manifestu
-                statusEl.textContent = '📦 Veido manifestu...';
-                
-                const manifest = {
-                    manifest: 'arweave/paths',
-                    version: '0.1.0',
-                    index: { path: 'restore.html' },
-                    paths: {}
-                };
-                
-                for (const r of uploadResults) {
-                    manifest.paths[r.name] = { id: r.txId };
-                }
-                
-                // TIEŠA manifesta augšupielāde ar lietotāja maku
-                const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/x.arweave-manifest+json' });
-                
-                const manifestResult = await turboClient.uploadFile({
-                    fileStreamFactory: () => manifestBlob.stream(),
-                    fileSizeFactory: () => manifestBlob.size,
-                    dataItemOpts: {
-                        tags: [
-                            { name: 'App-Name', value: 'PermRepo' },
-                            { name: 'Type', value: 'path-manifest' },
-                            { name: 'Content-Type', value: 'application/x.arweave-manifest+json' },
-                            { name: 'Title', value: 'PermRepo Restore' }
-                        ]
-                    }
-                });
-                
-                let resultText = '✅ Augšupielādēti faili:\n\n';
-                for (const r of uploadResults) {
-                    resultText += '📄 ' + r.name + '\n' + r.txId + '\n\n';
-                }
-                
-                resultText += '📦 MANIFEST TX ID: ' + manifestResult.id + '\n\n';
-                resultText += '🌐 URL: https://ar-io.dev/' + manifestResult.id;
                 
                 statusEl.textContent = resultText;
                 statusEl.className = 'status success';
-                
-                selectedFiles = [];
-                updateFileList();
                 
             } catch (e) {
                 console.error('Kļūda:', e);
                 statusEl.textContent = '❌ ' + e.message;
                 statusEl.className = 'status error';
-            } finally {
-                button.disabled = false;
             }
         });
     </script>
