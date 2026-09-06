@@ -178,9 +178,9 @@
                     }
                 }
                 
-                // Izveido Turbo klientu ar PAREIZO import /web
+                // Izveido Turbo klientu - KĀ DOKUMENTĀCIJĀ
                 try {
-                    const turboModule = await import('/node_modules/@ardrive/turbo-sdk/web');
+                    const turboModule = await import('https://unpkg.com/@ardrive/turbo-sdk@latest');
                     const TurboFactory = turboModule.TurboFactory;
                     const InjectedEthereumSigner = turboModule.InjectedEthereumSigner;
                     
