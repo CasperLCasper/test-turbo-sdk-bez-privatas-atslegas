@@ -12,6 +12,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [balance, setBalance] = useState(null);
+  const [freeBytes, setFreeBytes] = useState(null);
   const [isTopUp, setIsTopUp] = useState(false);
   const [isCheckingBalance, setIsCheckingBalance] = useState(false);
 
@@ -64,12 +65,13 @@ function App() {
       setTurboClient(client);
       setStatus('✅ Maks savienots: ' + address);
 
-      // Automātiski pārbauda bilanci
+      // Automātiski pārbauda bilanci caur HTTP API
       try {
-        const balanceResult = await client.getBalance();
-        setBalance(balanceResult.winc);
-      } catch (balanceError) {
-        console.error('Bilances kļūda:', balanceError);
+        const freeResponse = await fetch(`https://payment.services.ar-io.dev/v1/account/free?address=${address}`);
+        const freeData = await freeResponse.json();
+        setFreeBytes(freeData.bytesRemaining);
+      } catch (freeError) {
+        console.warn('Bezmaksas limita kļūda:', freeError);
       }
 
     } catch (error) {
@@ -78,21 +80,56 @@ function App() {
   }, []);
 
   const checkBalance = useCallback(async () => {
-    if (!turboClient) return;
+    if (!userAddress) return;
 
     setIsCheckingBalance(true);
     setStatus('⏳ Pārbauda bilanci...');
 
     try {
-      const balanceResult = await turboClient.getBalance();
-      setBalance(balanceResult.winc);
-      setStatus('💰 Bilance: ' + balanceResult.winc + ' winc');
+      // 1. Bezmaksas limits
+      const freeResponse = await fetch(`https://payment.services.ar-io.dev/v1/account/free?address=${userAddress}`);
+      const freeData = await freeResponse.json();
+      setFreeBytes(freeData.bytesRemaining);
+
+      // 2. Kredītu bilance (mēģina caur Turbo SDK, ja neizdodas, atstāj null)
+      let creditBalance = null;
+      try {
+        if (turboClient) {
+          const balanceResult = await turboClient.getBalance();
+          creditBalance = balanceResult.winc;
+        }
+      } catch (sdkError) {
+        console.warn('SDK bilances kļūda:', sdkError);
+      }
+      
+      setBalance(creditBalance);
+
+      // 3. Parāda statusu
+      let statusText = '';
+      
+      if (creditBalance !== null) {
+        statusText += '💰 Kredītu bilance: ' + creditBalance + ' winc\n';
+      } else {
+        statusText += '💰 Kredītu bilance: Nav pieejama (testa serveris)\n';
+      }
+      
+      if (freeData.bytesRemaining === null) {
+        statusText += '📊 Bezmaksas limits: NEIEROBEŽOTS';
+      } else if (freeData.bytesRemaining === 0) {
+        statusText += '📊 Bezmaksas limits: IZSMELTS';
+      } else {
+        const freeMB = (freeData.bytesRemaining / 1024 / 1024).toFixed(2);
+        statusText += '📊 Bezmaksas atlikums: ' + freeMB + ' MB';
+      }
+      
+      setStatus(statusText);
+
     } catch (error) {
       setStatus('❌ ' + error.message);
     } finally {
       setIsCheckingBalance(false);
     }
-  }, [turboClient]);
+  }, [userAddress, turboClient]);
 
   const topUpCredits = useCallback(async () => {
     if (!signer || !turboClient) return;
@@ -231,12 +268,15 @@ function App() {
       setStatus(resultText);
       setSelectedFiles([]);
 
-      // Atjauno bilanci pēc augšupielādes
-      try {
-        const balanceResult = await turboClient.getBalance();
-        setBalance(balanceResult.winc);
-      } catch (balanceError) {
-        console.error('Bilances kļūda:', balanceError);
+      // Atjauno bezmaksas limitu pēc augšupielādes
+      if (userAddress) {
+        try {
+          const freeResponse = await fetch(`https://payment.services.ar-io.dev/v1/account/free?address=${userAddress}`);
+          const freeData = await freeResponse.json();
+          setFreeBytes(freeData.bytesRemaining);
+        } catch (freeError) {
+          console.warn('Bezmaksas limita kļūda:', freeError);
+        }
       }
 
     } catch (error) {
@@ -244,7 +284,7 @@ function App() {
     } finally {
       setIsUploading(false);
     }
-  }, [selectedFiles, turboClient]);
+  }, [selectedFiles, turboClient, userAddress]);
 
   return (
     <div style={{ maxWidth: '600px', margin: '40px auto', padding: '20px', background: '#0d1117', color: '#e6edf3', borderRadius: '12px', fontFamily: 'Arial, sans-serif' }}>
@@ -253,7 +293,8 @@ function App() {
       <div style={{ background: '#161b22', padding: '30px', borderRadius: '12px' }}>
         <div style={{ padding: '12px', marginBottom: '16px', background: '#0d1117', borderRadius: '8px', color: userAddress ? '#3fb950' : '#8b949e' }}>
           {userAddress ? `✅ Maks savienots: ${userAddress}` : '⚠️ Nav savienots maks'}
-          {balance !== null && ` | 💰 Bilance: ${balance} winc`}
+          {balance !== null && ` | 💰 Kredīti: ${balance} winc`}
+          {freeBytes !== null && freeBytes !== undefined && freeBytes !== null && ` | 📊 Bezmaksas: ${freeBytes === null ? '∞' : (freeBytes / 1024 / 1024).toFixed(2) + ' MB'}`}
         </div>
 
         {!userAddress && (
@@ -265,7 +306,7 @@ function App() {
         {userAddress && (
           <>
             <button onClick={checkBalance} disabled={isCheckingBalance} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '8px' }}>
-              {isCheckingBalance ? '⏳ Pārbauda...' : '💰 Pārbaudīt bilanci'}
+              {isCheckingBalance ? '⏳ Pārbauda...' : '💰 Pārbaudīt bilanci un bezmaksas limitu'}
             </button>
 
             <button onClick={topUpCredits} disabled={isTopUp} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '16px' }}>
