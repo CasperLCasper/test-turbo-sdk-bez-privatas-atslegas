@@ -4,5 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node server-upload.js"
+  },
+  "dependencies": {
+    "@ardrive/turbo-sdk": "1.42.0"
   }
 }
