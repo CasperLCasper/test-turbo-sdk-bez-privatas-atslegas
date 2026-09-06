@@ -178,9 +178,9 @@
                     }
                 }
                 
-                // Izveido Turbo klientu ar ?bundle parametru
+                // Izveido Turbo klientu ar LOKĀLO SDK
                 try {
-                    const { TurboFactory, InjectedEthereumSigner } = await import('https://esm.sh/@ardrive/turbo-sdk?bundle');
+                    const { TurboFactory, InjectedEthereumSigner } = await import('/node_modules/@ardrive/turbo-sdk/dist/index.js');
                     
                     turboClient = TurboFactory.authenticated({
                         signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
