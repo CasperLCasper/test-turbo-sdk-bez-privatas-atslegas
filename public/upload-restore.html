@@ -23,14 +23,46 @@
             margin-bottom: 20px;
             color: #79c0ff;
         }
-        input[type="file"] {
-            width: 100%;
-            padding: 12px;
+        .wallet-status {
             background: #0d1117;
             border: 1px solid #30363d;
             border-radius: 8px;
-            color: #e6edf3;
+            padding: 12px;
             margin-bottom: 16px;
+            color: #8b949e;
+        }
+        .wallet-status.connected {
+            color: #3fb950;
+            border-color: #3fb950;
+        }
+        .drop-zone {
+            border: 2px dashed #30363d;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 16px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .drop-zone.dragover {
+            border-color: #79c0ff;
+            background: rgba(121, 192, 255, 0.1);
+        }
+        .drop-zone p {
+            color: #8b949e;
+            font-size: 16px;
+            margin: 0;
+        }
+        .file-list {
+            margin-bottom: 16px;
+        }
+        .file-item {
+            padding: 8px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            color: #e6edf3;
         }
         button { 
             padding: 12px 24px; 
@@ -41,16 +73,22 @@
             border: 1px solid rgba(63, 185, 80, 0.3);
             border-radius: 8px;
             width: 100%;
+            margin-bottom: 8px;
         }
         button:disabled {
             background: #30363d;
             color: #8b949e;
             cursor: not-allowed;
         }
+        button.secondary {
+            background: #21262d;
+            border-color: #30363d;
+        }
         .status { 
             margin-top: 20px; 
             padding: 10px; 
             word-break: break-all;
+            white-space: pre-wrap;
         }
         .success { color: #3fb950; }
         .error { color: #f85149; }
@@ -58,52 +96,228 @@
 </head>
 <body>
     <div class="container">
-        <h1>📤 Upload failu uz Arweave</h1>
+        <h1>📤 Upload failus uz Arweave</h1>
         
-        <input type="file" id="fileInput" accept=".html">
+        <div class="wallet-status" id="walletStatus">
+            ⚠️ Nav savienots maks
+        </div>
         
-        <button id="uploadBtn">Augšupielādēt</button>
+        <button id="connectWalletBtn" class="secondary">🔗 Savienot maku</button>
+        
+        <div class="drop-zone" id="dropZone" style="margin-top: 16px;">
+            <p>📁 Ievelc failus šeit</p>
+            <p style="font-size: 12px; margin-top: 8px;">vai noklikšķini, lai izvēlētos</p>
+            <input type="file" id="fileInput" multiple accept=".html,.css,.js" style="display: none;">
+        </div>
+        
+        <div class="file-list" id="fileList"></div>
+        
+        <button id="uploadBtn" disabled>Augšupielādēt un izveidot manifestu</button>
         
         <div id="status" class="status"></div>
     </div>
 
-    <script>
-        document.getElementById('uploadBtn').addEventListener('click', async function() {
-            const statusEl = document.getElementById('status');
-            const button = document.getElementById('uploadBtn');
-            const fileInput = document.getElementById('fileInput');
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+    <script type="module">
+        import { TurboFactory, InjectedEthereumSigner } from 'https://cdn.jsdelivr.net/npm/@ardrive/turbo-sdk@latest/dist/browser.js';
+        
+        let selectedFiles = [];
+        let userSigner = null;
+        let userAddress = null;
+        let turboClient = null;
+        
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const connectWalletBtn = document.getElementById('connectWalletBtn');
+        const walletStatus = document.getElementById('walletStatus');
+        
+        // Maka savienošana
+        connectWalletBtn.addEventListener('click', async function() {
+            try {
+                if (!window.ethereum) {
+                    throw new Error('Nav instalēts MetaMask!');
+                }
+                
+                walletStatus.textContent = '⏳ Savieno maku...';
+                
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                userSigner = await provider.getSigner();
+                userAddress = await userSigner.getAddress();
+                
+                walletStatus.textContent = '✅ Maks savienots: ' + userAddress;
+                walletStatus.className = 'wallet-status connected';
+                
+                // Izveido Turbo klientu ar lietotāja maku
+                turboClient = TurboFactory.authenticated({
+                    signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
+                    token: 'base-eth',
+                    uploadServiceConfig: { url: 'https://upload.services.ar-io.dev' },
+                    paymentServiceConfig: { url: 'https://payment.services.ar-io.dev' }
+                });
+                
+                connectWalletBtn.textContent = '✅ Maks savienots';
+                connectWalletBtn.disabled = true;
+                
+            } catch (error) {
+                walletStatus.textContent = '❌ ' + error.message;
+                walletStatus.className = 'wallet-status';
+            }
+        });
+        
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
             
-            if (!fileInput.files || fileInput.files.length === 0) {
-                statusEl.textContent = '❌ Izvēlies failu!';
-                statusEl.className = 'status error';
+            const files = Array.from(e.dataTransfer.files);
+            addFiles(files);
+        });
+        
+        fileInput.addEventListener('change', () => {
+            const files = Array.from(fileInput.files);
+            addFiles(files);
+        });
+        
+        function addFiles(files) {
+            selectedFiles = [...selectedFiles, ...files];
+            updateFileList();
+        }
+        
+        function updateFileList() {
+            fileList.innerHTML = '';
+            
+            if (selectedFiles.length === 0) {
+                uploadBtn.disabled = true;
                 return;
             }
             
-            const file = fileInput.files[0];
+            selectedFiles.forEach((file, index) => {
+                const div = document.createElement('div');
+                div.className = 'file-item';
+                div.innerHTML = '📄 ' + file.name + ' (' + formatBytes(file.size) + ') ' +
+                    '<button onclick="removeFile(' + index + ')" style="width: auto; padding: 4px 8px; margin: 0; background: #f85149; border: none; border-radius: 4px; cursor: pointer;">✕</button>';
+                fileList.appendChild(div);
+            });
+            
+            uploadBtn.disabled = !turboClient;
+        }
+        
+        window.removeFile = function(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        };
+        
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+        }
+        
+        uploadBtn.addEventListener('click', async function() {
+            if (selectedFiles.length === 0 || !turboClient) return;
+            
+            const statusEl = document.getElementById('status');
+            const button = uploadBtn;
             
             button.disabled = true;
-            statusEl.textContent = '⏳ Augšupielādē...';
+            statusEl.textContent = '⏳ Augšupielādē ' + selectedFiles.length + ' failus...';
             statusEl.className = 'status';
             
             try {
-                const fileBuffer = await file.arrayBuffer();
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
+                const uploadResults = [];
                 
-                const response = await fetch('/api/upload-restore', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fileContent: base64 })
+                // 1. Augšupielādē visus failus TIEŠI no pārlūka ar lietotāja maku
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const file = selectedFiles[i];
+                    statusEl.textContent = '⏳ Augšupielādē ' + (i + 1) + '/' + selectedFiles.length + ': ' + file.name + '...';
+                    
+                    // Nosaka Content-Type
+                    let contentType = 'text/html';
+                    let fileType = 'restore-page';
+                    
+                    if (file.name === 'manifest.json') {
+                        contentType = 'application/x.arweave-manifest+json';
+                        fileType = 'path-manifest';
+                    } else if (file.name.endsWith('.css')) {
+                        contentType = 'text/css';
+                        fileType = 'style';
+                    } else if (file.name.endsWith('.js')) {
+                        contentType = 'application/javascript';
+                        fileType = 'script';
+                    }
+                    
+                    // TIEŠA augšupielāde no pārlūka ar lietotāja maku
+                    const result = await turboClient.uploadFile({
+                        fileStreamFactory: () => file.stream(),
+                        fileSizeFactory: () => file.size,
+                        dataItemOpts: {
+                            tags: [
+                                { name: 'App-Name', value: 'PermRepo' },
+                                { name: 'Type', value: fileType },
+                                { name: 'Content-Type', value: contentType },
+                                { name: 'Title', value: 'PermRepo Restore' }
+                            ]
+                        }
+                    });
+                    
+                    uploadResults.push({ name: file.name, txId: result.id });
+                }
+                
+                // 2. Izveido manifestu
+                statusEl.textContent = '📦 Veido manifestu...';
+                
+                const manifest = {
+                    manifest: 'arweave/paths',
+                    version: '0.1.0',
+                    index: { path: 'restore.html' },
+                    paths: {}
+                };
+                
+                for (const r of uploadResults) {
+                    manifest.paths[r.name] = { id: r.txId };
+                }
+                
+                // TIEŠA manifesta augšupielāde ar lietotāja maku
+                const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/x.arweave-manifest+json' });
+                
+                const manifestResult = await turboClient.uploadFile({
+                    fileStreamFactory: () => manifestBlob.stream(),
+                    fileSizeFactory: () => manifestBlob.size,
+                    dataItemOpts: {
+                        tags: [
+                            { name: 'App-Name', value: 'PermRepo' },
+                            { name: 'Type', value: 'path-manifest' },
+                            { name: 'Content-Type', value: 'application/x.arweave-manifest+json' },
+                            { name: 'Title', value: 'PermRepo Restore' }
+                        ]
+                    }
                 });
                 
-                const result = await response.json();
-                
-                if (result.success) {
-                    statusEl.textContent = '✅ TX ID: ' + result.txId + '\n\nURL: https://ar-io.dev/' + result.txId;
-                    statusEl.className = 'status success';
-                } else {
-                    statusEl.textContent = '❌ ' + (result.error || 'Kļūda');
-                    statusEl.className = 'status error';
+                let resultText = '✅ Augšupielādēti faili:\n\n';
+                for (const r of uploadResults) {
+                    resultText += '📄 ' + r.name + '\n' + r.txId + '\n\n';
                 }
+                
+                resultText += '📦 MANIFEST TX ID: ' + manifestResult.id + '\n\n';
+                resultText += '🌐 URL: https://ar-io.dev/' + manifestResult.id;
+                
+                statusEl.textContent = resultText;
+                statusEl.className = 'status success';
+                
+                selectedFiles = [];
+                updateFileList();
                 
             } catch (e) {
                 console.error('Kļūda:', e);
