@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { TurboFactory } from '@ardrive/turbo-sdk/web';
+import { TurboFactory, OnDemandFunding } from '@ardrive/turbo-sdk/web';
 import { InjectedEthereumSigner } from '@dha-team/arbundles';
 
 function App() {
@@ -10,6 +10,8 @@ function App() {
   const [status, setStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [balance, setBalance] = useState(null);
+  const [isTopUp, setIsTopUp] = useState(false);
 
   const connectWallet = useCallback(async () => {
     try {
@@ -47,7 +49,7 @@ function App() {
         }
       }
 
-      // Izveido Turbo klientu ar PAREIZO import
+      // Izveido Turbo klientu
       const client = TurboFactory.authenticated({
         signer: new InjectedEthereumSigner({ getSigner: () => signer }),
         token: 'base-eth',
@@ -59,10 +61,43 @@ function App() {
       setTurboClient(client);
       setStatus('✅ Maks savienots: ' + address);
 
+      // Iegūst bilanci
+      try {
+        const balanceResult = await client.getBalance();
+        setBalance(balanceResult.winc);
+      } catch (balanceError) {
+        console.error('Bilances kļūda:', balanceError);
+      }
+
     } catch (error) {
       setStatus('❌ ' + error.message);
     }
   }, []);
+
+  const topUpCredits = useCallback(async () => {
+    if (!turboClient) return;
+
+    setIsTopUp(true);
+    setStatus('⏳ Pērk Turbo kredītus...');
+
+    try {
+      // Pērk kredītus ar 0.001 ETH
+      const result = await turboClient.topUpWithTokens({
+        tokenAmount: ethers.parseEther('0.001')
+      });
+
+      setStatus('✅ Kredīti nopirkti!');
+
+      // Atjauno bilanci
+      const balanceResult = await turboClient.getBalance();
+      setBalance(balanceResult.winc);
+
+    } catch (error) {
+      setStatus('❌ ' + error.message);
+    } finally {
+      setIsTopUp(false);
+    }
+  }, [turboClient]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -102,6 +137,7 @@ function App() {
           fileType = 'script';
         }
 
+        // Izmanto OnDemandFunding - automātiski pērk kredītus, ja vajag!
         const result = await turboClient.uploadFile({
           fileStreamFactory: () => file.stream(),
           fileSizeFactory: () => file.size,
@@ -112,7 +148,11 @@ function App() {
               { name: 'Content-Type', value: contentType },
               { name: 'Title', value: 'PermRepo Restore' }
             ]
-          }
+          },
+          fundingMode: new OnDemandFunding({
+            maxTokenAmount: ethers.parseEther('0.01'), // Max 0.01 ETH
+            topUpBufferMultiplier: 1.1 // 10% buferis
+          })
         });
 
         uploadResults.push({ name: file.name, txId: result.id });
@@ -122,7 +162,7 @@ function App() {
       const manifest = {
         manifest: 'arweave/paths',
         version: '0.1.0',
-        index: { path: 'restore.html' },
+        index: { path: selectedFiles[0]?.name || 'restore.html' },
         paths: {}
       };
 
@@ -142,7 +182,11 @@ function App() {
             { name: 'Content-Type', value: 'application/x.arweave-manifest+json' },
             { name: 'Title', value: 'PermRepo Restore' }
           ]
-        }
+        },
+        fundingMode: new OnDemandFunding({
+          maxTokenAmount: ethers.parseEther('0.01'),
+          topUpBufferMultiplier: 1.1
+        })
       });
 
       let resultText = '✅ Augšupielādēti faili:\n\n';
@@ -154,6 +198,14 @@ function App() {
 
       setStatus(resultText);
       setSelectedFiles([]);
+
+      // Atjauno bilanci
+      try {
+        const balanceResult = await turboClient.getBalance();
+        setBalance(balanceResult.winc);
+      } catch (balanceError) {
+        console.error('Bilances kļūda:', balanceError);
+      }
 
     } catch (error) {
       setStatus('❌ ' + error.message);
@@ -169,11 +221,18 @@ function App() {
       <div style={{ background: '#161b22', padding: '30px', borderRadius: '12px' }}>
         <div style={{ padding: '12px', marginBottom: '16px', background: '#0d1117', borderRadius: '8px', color: userAddress ? '#3fb950' : '#8b949e' }}>
           {userAddress ? `✅ Maks savienots: ${userAddress}` : '⚠️ Nav savienots maks'}
+          {balance !== null && ` | 💰 Bilance: ${balance}`}
         </div>
 
         {!userAddress && (
           <button onClick={connectWallet} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '16px' }}>
             🔗 Savienot maku
+          </button>
+        )}
+
+        {userAddress && (
+          <button onClick={topUpCredits} disabled={isTopUp} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '16px' }}>
+            {isTopUp ? '⏳ Pērk...' : '💰 Pirkt Turbo kredītus (0.001 ETH)'}
           </button>
         )}
 
