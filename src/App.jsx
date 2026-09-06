@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { TurboFactory, OnDemandFunding } from '@ardrive/turbo-sdk/web';
+import { TurboFactory } from '@ardrive/turbo-sdk/web';
 import { InjectedEthereumSigner } from '@dha-team/arbundles';
 
 function App() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [userAddress, setUserAddress] = useState(null);
+  const [signer, setSigner] = useState(null);
   const [turboClient, setTurboClient] = useState(null);
   const [status, setStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -26,7 +27,8 @@ function App() {
       setUserAddress(address);
 
       const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
+      const signerInstance = await provider.getSigner();
+      setSigner(signerInstance);
 
       // Pārslēdzas uz Base Sepolia
       try {
@@ -51,7 +53,7 @@ function App() {
 
       // Izveido Turbo klientu
       const client = TurboFactory.authenticated({
-        signer: new InjectedEthereumSigner({ getSigner: () => signer }),
+        signer: new InjectedEthereumSigner({ getSigner: () => signerInstance }),
         token: 'base-eth',
         gatewayUrl: 'https://sepolia.base.org',
         uploadServiceConfig: { url: 'https://upload.services.ar-io.dev' },
@@ -61,9 +63,49 @@ function App() {
       setTurboClient(client);
       setStatus('✅ Maks savienots: ' + address);
 
-      // Iegūst bilanci
+    } catch (error) {
+      setStatus('❌ ' + error.message);
+    }
+  }, []);
+
+  // Pērk kredītus ar TIEŠU ETH pārskaitījumu
+  const topUpCredits = useCallback(async () => {
+    if (!signer || !turboClient) return;
+
+    setIsTopUp(true);
+    setStatus('⏳ Pērk Turbo kredītus...');
+
+    try {
+      // 1. Iegūst Turbo payment adresi
+      const infoResponse = await fetch('https://payment.services.ar-io.dev/v1/info');
+      const infoData = await infoResponse.json();
+      const turboAddress = infoData.addresses['base-eth'] || infoData.addresses.ethereum;
+
+      // 2. Lietotājs veic TIEŠU ETH pārskaitījumu
+      setStatus('⏳ Apstiprini transakciju MetaMask...');
+
+      const tx = await signer.sendTransaction({
+        to: turboAddress,
+        value: ethers.parseEther('0.001')
+      });
+
+      setStatus('⏳ Gaida apstiprinājumu...');
+      await tx.wait();
+
+      // 3. Iesniedz funding transakciju Turbo
+      setStatus('⏳ Iesniedz funding transakciju...');
+
+      await fetch(`https://payment.services.ar-io.dev/v1/account/balance/base-eth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txId: tx.hash })
+      });
+
+      setStatus('✅ Kredīti nopirkti! TX: ' + tx.hash);
+
+      // 4. Atjauno bilanci
       try {
-        const balanceResult = await client.getBalance();
+        const balanceResult = await turboClient.getBalance();
         setBalance(balanceResult.winc);
       } catch (balanceError) {
         console.error('Bilances kļūda:', balanceError);
@@ -71,33 +113,10 @@ function App() {
 
     } catch (error) {
       setStatus('❌ ' + error.message);
-    }
-  }, []);
-
-  const topUpCredits = useCallback(async () => {
-    if (!turboClient) return;
-
-    setIsTopUp(true);
-    setStatus('⏳ Pērk Turbo kredītus...');
-
-    try {
-      // Pērk kredītus ar 0.001 ETH
-      const result = await turboClient.topUpWithTokens({
-        tokenAmount: ethers.parseEther('0.001')
-      });
-
-      setStatus('✅ Kredīti nopirkti!');
-
-      // Atjauno bilanci
-      const balanceResult = await turboClient.getBalance();
-      setBalance(balanceResult.winc);
-
-    } catch (error) {
-      setStatus('❌ ' + error.message);
     } finally {
       setIsTopUp(false);
     }
-  }, [turboClient]);
+  }, [signer, turboClient]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -126,10 +145,7 @@ function App() {
         let contentType = 'text/html';
         let fileType = 'restore-page';
 
-        if (file.name === 'manifest.json') {
-          contentType = 'application/x.arweave-manifest+json';
-          fileType = 'path-manifest';
-        } else if (file.name.endsWith('.css')) {
+        if (file.name.endsWith('.css')) {
           contentType = 'text/css';
           fileType = 'style';
         } else if (file.name.endsWith('.js')) {
@@ -137,7 +153,6 @@ function App() {
           fileType = 'script';
         }
 
-        // Izmanto OnDemandFunding - automātiski pērk kredītus, ja vajag!
         const result = await turboClient.uploadFile({
           fileStreamFactory: () => file.stream(),
           fileSizeFactory: () => file.size,
@@ -148,11 +163,7 @@ function App() {
               { name: 'Content-Type', value: contentType },
               { name: 'Title', value: 'PermRepo Restore' }
             ]
-          },
-          fundingMode: new OnDemandFunding({
-            maxTokenAmount: ethers.parseEther('0.01'), // Max 0.01 ETH
-            topUpBufferMultiplier: 1.1 // 10% buferis
-          })
+          }
         });
 
         uploadResults.push({ name: file.name, txId: result.id });
@@ -162,7 +173,7 @@ function App() {
       const manifest = {
         manifest: 'arweave/paths',
         version: '0.1.0',
-        index: { path: selectedFiles[0]?.name || 'restore.html' },
+        index: { path: selectedFiles[0]?.name || 'index.html' },
         paths: {}
       };
 
@@ -182,11 +193,7 @@ function App() {
             { name: 'Content-Type', value: 'application/x.arweave-manifest+json' },
             { name: 'Title', value: 'PermRepo Restore' }
           ]
-        },
-        fundingMode: new OnDemandFunding({
-          maxTokenAmount: ethers.parseEther('0.01'),
-          topUpBufferMultiplier: 1.1
-        })
+        }
       });
 
       let resultText = '✅ Augšupielādēti faili:\n\n';
@@ -198,14 +205,6 @@ function App() {
 
       setStatus(resultText);
       setSelectedFiles([]);
-
-      // Atjauno bilanci
-      try {
-        const balanceResult = await turboClient.getBalance();
-        setBalance(balanceResult.winc);
-      } catch (balanceError) {
-        console.error('Bilances kļūda:', balanceError);
-      }
 
     } catch (error) {
       setStatus('❌ ' + error.message);
