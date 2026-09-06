@@ -7,30 +7,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3001;
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const server = http.createServer((req, res) => {
-    // Noņem query parametrus
     const url = req.url.split('?')[0];
     
-    // Nosaka faila ceļu
-    let filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
+    // Noklusējuma fails - index.html
+    let filePath = path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url);
     
-    // Novērš path traversal uzbrukumus
-    if (!filePath.startsWith(path.join(__dirname, 'public'))) {
-        res.writeHead(403);
+    console.log('Pieprasīts:', url, '->', filePath);
+    
+    // Novērš path traversal
+    if (!filePath.startsWith(PUBLIC_DIR)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
         res.end('Forbidden');
         return;
     }
     
-    // Pārbauda, vai fails eksistē
     fs.readFile(filePath, (err, data) => {
         if (err) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end('Not found');
+            console.error('Kļūda lasot failu:', filePath, '-', err.message);
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Not found: ' + url);
             return;
         }
         
-        // Nosaka Content-Type pēc faila paplašinājuma
         const ext = path.extname(filePath).toLowerCase();
         const contentTypes = {
             '.html': 'text/html; charset=utf-8',
@@ -59,6 +60,6 @@ server.listen(PORT, () => {
     console.log('='.repeat(60));
     console.log(`   Ports: ${PORT}`);
     console.log(`   URL: http://localhost:${PORT}`);
-    console.log(`   Mape: ${path.join(__dirname, 'public')}`);
+    console.log(`   Mape: ${PUBLIC_DIR}`);
     console.log('='.repeat(60) + '\n');
 });
