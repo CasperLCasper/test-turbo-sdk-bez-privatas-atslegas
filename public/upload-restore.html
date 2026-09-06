@@ -178,9 +178,9 @@
                     }
                 }
                 
-                // Izveido Turbo klientu
+                // Izveido Turbo klientu ar PAREIZO CDN (esm.sh)
                 try {
-                    const { TurboFactory, InjectedEthereumSigner } = await import('https://cdn.jsdelivr.net/npm/@ardrive/turbo-sdk@latest/dist/browser.js');
+                    const { TurboFactory, InjectedEthereumSigner } = await import('https://esm.sh/@ardrive/turbo-sdk');
                     
                     turboClient = TurboFactory.authenticated({
                         signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
