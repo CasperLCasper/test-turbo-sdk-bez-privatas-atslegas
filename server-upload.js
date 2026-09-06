@@ -7,14 +7,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3001;
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
     
-    let filePath = path.join(__dirname, url === '/' ? 'public/index.html' : url);
+    let filePath = path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url);
+    
+    console.log('Pieprasīts:', url, '->', filePath);
     
     fs.readFile(filePath, (err, data) => {
         if (err) {
+            console.error('Kļūda:', err.message);
             res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end('Not found: ' + url);
             return;
@@ -48,5 +52,6 @@ server.listen(PORT, () => {
     console.log('='.repeat(60));
     console.log(`   Ports: ${PORT}`);
     console.log(`   URL: http://localhost:${PORT}`);
+    console.log(`   Mape: ${PUBLIC_DIR}`);
     console.log('='.repeat(60) + '\n');
 });
