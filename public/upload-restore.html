@@ -178,9 +178,9 @@
                     }
                 }
                 
-                // Izveido Turbo klientu ar PAREIZO CDN (esm.sh)
+                // Izveido Turbo klientu ar UNPKG
                 try {
-                    const { TurboFactory, InjectedEthereumSigner } = await import('https://esm.sh/@ardrive/turbo-sdk');
+                    const { TurboFactory, InjectedEthereumSigner } = await import('https://unpkg.com/@ardrive/turbo-sdk@latest');
                     
                     turboClient = TurboFactory.authenticated({
                         signer: new InjectedEthereumSigner({ getSigner: () => userSigner }),
@@ -293,7 +293,6 @@
             try {
                 const uploadResults = [];
                 
-                // 1. Augšupielādē visus failus
                 for (let i = 0; i < selectedFiles.length; i++) {
                     const file = selectedFiles[i];
                     statusEl.textContent = '⏳ Augšupielādē ' + (i + 1) + '/' + selectedFiles.length + ': ' + file.name + '...';
@@ -328,7 +327,6 @@
                     uploadResults.push({ name: file.name, txId: result.id });
                 }
                 
-                // 2. Izveido manifestu
                 statusEl.textContent = '📦 Veido manifestu...';
                 
                 const manifest = {
