@@ -8,11 +8,18 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3001;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const NODE_MODULES_DIR = path.join(__dirname, 'node_modules');
 
 const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
     
-    let filePath = path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url);
+    let filePath;
+    
+    if (url.startsWith('/node_modules/')) {
+        filePath = path.join(__dirname, url);
+    } else {
+        filePath = path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url);
+    }
     
     console.log('Pieprasīts:', url, '->', filePath);
     
