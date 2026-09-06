@@ -13,6 +13,7 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [balance, setBalance] = useState(null);
   const [isTopUp, setIsTopUp] = useState(false);
+  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
 
   const connectWallet = useCallback(async () => {
     try {
@@ -63,12 +64,36 @@ function App() {
       setTurboClient(client);
       setStatus('✅ Maks savienots: ' + address);
 
+      // Automātiski pārbauda bilanci
+      try {
+        const balanceResult = await client.getBalance();
+        setBalance(balanceResult.winc);
+      } catch (balanceError) {
+        console.error('Bilances kļūda:', balanceError);
+      }
+
     } catch (error) {
       setStatus('❌ ' + error.message);
     }
   }, []);
 
-  // Pērk kredītus ar TIEŠU ETH pārskaitījumu
+  const checkBalance = useCallback(async () => {
+    if (!turboClient) return;
+
+    setIsCheckingBalance(true);
+    setStatus('⏳ Pārbauda bilanci...');
+
+    try {
+      const balanceResult = await turboClient.getBalance();
+      setBalance(balanceResult.winc);
+      setStatus('💰 Bilance: ' + balanceResult.winc + ' winc');
+    } catch (error) {
+      setStatus('❌ ' + error.message);
+    } finally {
+      setIsCheckingBalance(false);
+    }
+  }, [turboClient]);
+
   const topUpCredits = useCallback(async () => {
     if (!signer || !turboClient) return;
 
@@ -206,6 +231,14 @@ function App() {
       setStatus(resultText);
       setSelectedFiles([]);
 
+      // Atjauno bilanci pēc augšupielādes
+      try {
+        const balanceResult = await turboClient.getBalance();
+        setBalance(balanceResult.winc);
+      } catch (balanceError) {
+        console.error('Bilances kļūda:', balanceError);
+      }
+
     } catch (error) {
       setStatus('❌ ' + error.message);
     } finally {
@@ -220,7 +253,7 @@ function App() {
       <div style={{ background: '#161b22', padding: '30px', borderRadius: '12px' }}>
         <div style={{ padding: '12px', marginBottom: '16px', background: '#0d1117', borderRadius: '8px', color: userAddress ? '#3fb950' : '#8b949e' }}>
           {userAddress ? `✅ Maks savienots: ${userAddress}` : '⚠️ Nav savienots maks'}
-          {balance !== null && ` | 💰 Bilance: ${balance}`}
+          {balance !== null && ` | 💰 Bilance: ${balance} winc`}
         </div>
 
         {!userAddress && (
@@ -230,9 +263,15 @@ function App() {
         )}
 
         {userAddress && (
-          <button onClick={topUpCredits} disabled={isTopUp} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '16px' }}>
-            {isTopUp ? '⏳ Pērk...' : '💰 Pirkt Turbo kredītus (0.001 ETH)'}
-          </button>
+          <>
+            <button onClick={checkBalance} disabled={isCheckingBalance} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '8px' }}>
+              {isCheckingBalance ? '⏳ Pārbauda...' : '💰 Pārbaudīt bilanci'}
+            </button>
+
+            <button onClick={topUpCredits} disabled={isTopUp} style={{ width: '100%', padding: '12px', background: '#21262d', color: '#fff', border: '1px solid #30363d', borderRadius: '8px', cursor: 'pointer', marginBottom: '16px' }}>
+              {isTopUp ? '⏳ Pērk...' : '💰 Pirkt Turbo kredītus (0.001 ETH)'}
+            </button>
+          </>
         )}
 
         <div
